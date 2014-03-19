@@ -456,13 +456,22 @@ sudo vim /etc/nova/nova.conf
 
 Controller Node
 scp /etc/ceph/ceph.client.admin.keyring root@compute1:/etc/ceph/
+scp /etc/ceph/ceph.client.cinder.keyring root@compute1:/etc/ceph/
 
 Compute1 Node
 sudo service nova-compute restart
 
 Apply patch for libvir
+compute1 & compute2
+su
+wget https://raw.github.com/d0m0reg00dthing/Openstack/master/Patches/Make%20rbd.libvirt_info%20parent%20class%20compatible.patch
+cd /usr/share/pyshared/nova
+patch -b < ~/Make\ rbd.libvirt_info\ parent\ class\ compatible.patch
+	File to patch: /usr/share/pyshared/nova/tests/virt/libvirt/test_imagebackend.py
+	File to patch: /usr/share/pyshared/nova/virt/libvirt/imagebackend.py
 
-
+service nova-compute restart
+service nova-api-metadata restart
 
 
 --- Testing
