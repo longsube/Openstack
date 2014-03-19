@@ -1,0 +1,466 @@
+controller
+	nic1: 172.16.0.105
+	nic2: 192.168.1.105 (Internet access)
+compute1
+	nic1: 172.16.0.201
+	nic2: 192.168.1.201 (Internet access)
+2 ổng cứng 
+	/dev/sdb : 50GB
+	/dev/sdc : 50GB
+compute2
+	nic1: 172.16.0.202
+	nic2: 192.168.1.202 (Internet access)
+2 ổ cứng 
+	/dev/sdb : 50GB
+	/dev/sdc : 50GB
+
+1. Installing Ceph
+3 Node
+172.16.0.105 controller
+172.16.0.201 compute1
+172.16.0.202 compute2
+
+useradd -d /home/ceph -s /bin/bash -m ceph
+passwd ceph
+echo "ceph ALL = (root) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ceph
+chmod 0440 /etc/sudoers.d/ceph
+
+
+Controller Node - Ceph Monitor Node
+su ceph
+cd
+ssh-keygen
+cluster="controller compute1 compute2"
+for node in $cluster; do ssh-copy-id ceph@$node; done;
+vim ~/.ssh/config
+	Host controller
+	User ceph
+
+	Host compute*
+	User ceph
+mkdir my-cluster
+cd my-cluster
+wget -O- 'https://ceph.com/git/?p=ceph.git;a=blob_plain;f=keys/release.asc' | sudo apt-key add -
+echo deb http://ceph.com/debian-emperor/ $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/ceph.list
+sudo apt-get update && sudo apt-get install ceph-deploy -y
+ceph-deploy new controller
+ceph-deploy install $cluster
+ceph-deploy mon create-initial
+ceph-deploy disk zap compute1:sdb compute1:sdc
+ceph-deploy disk zap compute2:sdb compute2:sdc
+ceph-deploy osd prepare compute1:sdb compute1:sdc
+ceph-deploy osd prepare compute2:sdb compute2:sdc
+ceph-deploy osd activate compute1:sdb compute1:sdc
+ceph-deploy osd activate compute2:sdb compute2:sdc
+
+sudo chmod +r /etc/ceph/ceph.client.admin.keyring
+ceph -s 
+	    cluster 8fd821a6-dab6-4cf8-9917-d9f501ea9c45
+	     health HEALTH_OK
+	     monmap e1: 1 mons at {controller=172.16.0.105:6789/0}, election epoch 2, quorum 0 controller
+	     osdmap e26: 4 osds: 4 up, 4 in
+	      pgmap v48: 192 pgs, 3 pools, 0 bytes data, 0 objects
+		    137 MB used, 179 GB / 179 GB avail
+		         192 active+clean
+
+2. Installing Openstack
+	2.1 Installing Controller Node
+apt-get update && apt-get upgrade -y && reboot
+apt-get install vim ntp python-mysqldb python-software-properties -y
+sed -i "/server [0-9].ubuntu.pool.ntp.org/d" /etc/ntp.conf
+sed -i "s/server ntp.ubuntu.com/server controller/" /etc/ntp.conf
+service ntp restart
+add-apt-repository cloud-archive:havana -y && apt-get update
+		2.1.1 MySQL Server
+apt-get install -y mysql-server
+mysql_secure_installation
+sudo sed -i "s/127.0.0.1/0.0.0.0/g" /etc/mysql/my.cnf
+sudo service mysql restart
+
+		2.1.2 Create Service DB
+vim ~/.my.cnf
+	[mysql]
+	user=root
+	password=37e84be4d4
+mysql
+CREATE DATABASE nova;
+GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY 'c7f8071480';
+GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY 'c7f8071480';
+
+CREATE DATABASE cinder;
+GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'localhost' IDENTIFIED BY '330f9ac57a';
+GRANT ALL PRIVILEGES ON cinder.* TO 'cinder'@'%' IDENTIFIED BY '330f9ac57a';
+
+CREATE DATABASE glance;
+GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'localhost' IDENTIFIED BY '874811b508';
+GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'%' IDENTIFIED BY '874811b508';
+
+CREATE DATABASE keystone;
+GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY '32e69124a4';
+GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY '32e69124a4';
+FLUSH PRIVILEGES;
+exit
+
+		2.1.3 RabbitMQ Server
+apt-get install rabbitmq-server -y
+rabbitmqctl change_password guest 9f637bdd89
+
+		2.1.4 Installing Identity Server (Keystone)
+apt-get install keystone python-keystone python-keystoneclient -y
+sed -i -e "s/# admin_token = ADMIN/admin_token = 365083ddc4/" \
+-e "s#connection = sqlite:////var/lib/keystone/keystone.db#connection = mysql://keystone:32e69124a4@controller/keystone#" \
+/etc/keystone/keystone.conf
+rm /var/lib/keystone/keystone.db
+keystone-manage db_sync
+service keystone restart
+export OS_SERVICE_TOKEN=365083ddc4
+export OS_SERVICE_ENDPOINT=http://controller:35357/v2.0
+keystone role-create --name=admin
+keystone role-create --name=Member
+keystone tenant-create --name=admin --description="Admin Tenant"
+keystone tenant-create --name=service --description="Service Tenant"
+keystone user-create --name=admin --pass=ea476b3713 --email=admin@example.com
+keystone user-role-add --user=admin --tenant=admin --role=admin
+keystone user-role-add --user=admin --tenant=admin --role=_member_
+keystone service-create --name=keystone --type=identity --description="Keystone Identity Service"
+keystone endpoint-create \
+--service-id=$(keystone service-list | awk '/ identity / {print $2}') \
+--publicurl=http://controller:5000/v2.0 \
+--internalurl=http://controller:5000/v2.0 \
+--adminurl=http://controller:35357/v2.0
+unset OS_SERVICE_TOKEN OS_SERVICE_ENDPOINT
+vim openrc
+	export OS_USERNAME=admin
+	export OS_PASSWORD=ea476b3713
+	export OS_TENANT_NAME=admin
+	export OS_AUTH_URL=http://controller:35357/v2.0
+source openrc
+keystone user-create --name=glance --pass=5315e35b70 --email=glance@example.com
+keystone user-role-add --user=glance --tenant=service --role=admin
+keystone service-create --name=glance --type=image --description="Glance Image Service"
+keystone endpoint-create \
+--service-id=$(keystone service-list | awk '/ image / {print $2}') \
+--publicurl=http://controller:9292 \
+--internalurl=http://controller:9292 \
+--adminurl=http://controller:9292
+
+keystone user-create --name=nova --pass=eb18c05cc1 --email=nova@example.com
+keystone user-role-add --user=nova --tenant=service --role=admin
+keystone service-create --name=nova --type=compute --description="Nova Compute service"
+keystone endpoint-create \
+--service-id=$(keystone service-list | awk '/ compute / {print $2}') \
+--publicurl=http://controller:8774/v2/%\(tenant_id\)s \
+--internalurl=http://controller:8774/v2/%\(tenant_id\)s \
+--adminurl=http://controller:8774/v2/%\(tenant_id\)s
+
+keystone user-create --name=cinder --pass=5151e212aa --email=cinder@example.com
+keystone user-role-add --user=cinder --tenant=service --role=admin
+keystone service-create --name=cinder --type=volume --description="Cinder Volume Service"
+keystone endpoint-create --service-id=$(keystone service-list | awk '/ volume / {print $2}') \
+--publicurl=http://controller:8776/v1/%\(tenant_id\)s \
+--internalurl=http://controller:8776/v1/%\(tenant_id\)s \
+--adminurl=http://controller:8776/v1/%\(tenant_id\)s
+keystone service-create --name=cinderv2 --type=volumev2 --description="Cinder Volume Service V2"
+keystone endpoint-create \
+--service-id=$(keystone service-list | awk '/ volumev2 / {print $2}') \
+--publicurl=http://controller:8776/v2/%\(tenant_id\)s \
+--internalurl=http://controller:8776/v2/%\(tenant_id\)s \
+--adminurl=http://controller:8776/v2/%\(tenant_id\)s
+
+		2.1.5 Installing Images Service (Glance)
+apt-get install glance -y
+vim /etc/glance/glance-api.conf
+vim /etc/glance/glance-registry.conf
+	sql_connection = mysql://glance:874811b508@controller/glance
+
+	[keystone_authtoken]
+	auth_host = controller
+	auth_port = 35357
+	auth_protocol = http
+	admin_tenant_name = service
+	admin_user = glance
+	admin_password = 5315e35b70
+sudo vi /etc/glance/glance-api.conf
+	rabbit_password = 9f637bdd89
+glance-manage db_sync
+service glance-registry restart
+service glance-api restart
+
+	2.1.6 Installing Block Service (Cinder)
+apt-get install cinder-api cinder-scheduler cinder-volume -y
+vim /etc/cinder/cinder.conf 
+	[DEFAULT]
+	rpc_backend = cinder.openstack.common.rpc.impl_kombu
+	rabbit_host = controller
+	rabbit_port = 5672
+	rabbit_password = 9f637bdd89
+	sql_connection=mysql://cinder:330f9ac57a@controller/cinder
+
+	[keystone_authtoken]
+	signing_dir=/tmp/keystone-signing-cinder
+	admin_password=5151e212aa
+	auth_port=35357
+	auth_host=controller
+	admin_tenant_name=service
+	auth_protocol=http
+	admin_user=cinder
+	signing_dirname=/tmp/keystone-signing-cinder
+vim /etc/cinder/api-paste.ini
+	#auth_host = 127.0.0.1
+	#auth_port = 35357
+	#auth_protocol = http
+	#admin_tenant_name = %SERVICE_TENANT_NAME%
+	#admin_user = %SERVICE_USER%
+	#admin_password = %SERVICE_PASSWORD%
+service cinder-scheduler restart
+service cinder-api restart
+service cinder-volume restart
+
+		2.1.7 Installing Compute Service (Nova)
+apt-get install nova-novncproxy novnc nova-api nova-ajax-console-proxy nova-cert \
+nova-conductor nova-consoleauth nova-doc nova-scheduler python-novaclient -y
+sudo vi /etc/nova/nova.conf
+	[DEFAULT]
+	auth_strategy=keystone
+	rpc_backend = nova.rpc.impl_kombu
+	rabbit_host = controller
+	rabbit_password = 9f637bdd89
+
+	start_guests_on_host_boot=true
+
+	network_manager=nova.network.manager.FlatDHCPManager
+	firewall_driver=nova.virt.libvirt.firewall.IptablesFirewallDriver
+	network_size=254
+	allow_same_net_traffic=False
+	multi_host=True
+	send_arp_for_ha=True
+	share_dhcp_address=True
+	force_dhcp_release=True
+	flat_network_bridge=br100
+	flat_interface=eth0
+	public_interface=eth1
+
+	metadata_listen=0.0.0.0
+
+	volume_api_class=nova.volume.cinder.API
+
+	image_service=nova.image.glance.GlanceImageService
+	glance_api_servers=172.16.0.105:9292
+
+	novnc_enabled=true
+	novncproxy_host=172.16.0.105
+	novncproxy_port=6080
+
+	sql_connection=mysql://nova:c7f8071480@controller/nova
+
+	[keystone_authtoken]
+	auth_port=35357
+	admin_password=eb18c05cc1
+	admin_user=nova
+	auth_protocol=http
+	auth_host=controller
+	signing_dirname=/tmp/keystone-signing-nova
+	admin_tenant_name=service
+	signing_dir=/tmp/keystone-signing-nova
+nova-manage db sync
+vim /etc/nova/api-paste.ini
+	#auth_host = 127.0.0.1
+	#auth_port = 35357
+	#auth_protocol = http
+	#admin_tenant_name = %SERVICE_TENANT_NAME%
+	#admin_user = %SERVICE_USER%
+	#admin_password = %SERVICE_PASSWORD%
+service nova-api restart
+service nova-cert restart
+service nova-consoleauth restart
+service nova-scheduler restart
+service nova-conductor restart
+service nova-novncproxy restart
+
+		2.1.8 Installing Dashboard Service (Horizon)
+apt-get install memcached libapache2-mod-wsgi openstack-dashboard -y
+apt-get remove --purge openstack-dashboard-ubuntu-theme -y
+
+	2.2 Installing Compute Service (nova)
+apt-get update && apt-get upgrade -y && reboot
+apt-get install vim ntp python-mysqldb python-software-properties -y
+sed -i "/server [0-9].ubuntu.pool.ntp.org/d" /etc/ntp.conf
+sed -i "s/server ntp.ubuntu.com/server controller/" /etc/ntp.conf
+service ntp restart
+add-apt-repository cloud-archive:havana -y && apt-get update
+apt-get install nova-compute-qemu python-novaclient python-guestfs nova-network nova-api-metadata -y
+	Create or update supermin appliance now?  => Yes
+dpkg-statoverride --update --add root root 0644 /boot/vmlinuz-$(uname -r)
+vim /etc/kernel/postinst.d/statoverride
+	#!/bin/sh
+	version="$1"
+	# passing the kernel version is required
+	[ -z "${version}" ] && exit 0
+	dpkg-statoverride --update --add root root 0644 /boot/vmlinuz-${version}
+chmod +x /etc/kernel/postinst.d/statoverride
+vim /etc/nova/nova.conf
+	[DEFAULT]
+	auth_strategy=keystone
+	rpc_backend = nova.rpc.impl_kombu
+	rabbit_host = controller
+	rabbit_port = 5672
+	rabbit_password=9f637bdd89
+	notification_driver=nova.openstack.common.notifier.rpc_notifier
+
+	glance_api_servers=controller:9292
+	image_service=nova.image.glance.GlanceImageService
+
+	volume_api_class=nova.volume.cinder.API
+
+	# Compute
+	compute_driver=libvirt.LibvirtDriver
+	compute_scheduler_driver=nova.scheduler.filter_scheduler.FilterScheduler
+
+	#Enable live migration
+	live_migration_flag=VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE,VIR_MIGRATE_PERSIST_DEST
+
+	vnc_enabled=true
+	novncproxy_base_url=http://controller:6080/vnc_auto.html
+	vncserver_proxyclient_address=172.16.0.201
+	vncserver_listen=0.0.0.0
+
+	sql_connection=mysql://nova:c7f8071480@controller/nova
+
+	start_guests_on_host_boot=true
+	network_manager=nova.network.manager.FlatDHCPManager
+	firewall_driver=nova.virt.libvirt.firewall.IptablesFirewallDriver
+	network_size=254
+	allow_same_net_traffic=False
+	multi_host=True
+	send_arp_for_ha=True
+	share_dhcp_address=True
+	force_dhcp_release=True
+	flat_network_bridge=br100
+	flat_interface=eth0
+	public_interface=eth1
+
+	[keystone_authtoken]
+	auth_port=35357
+	admin_password=eb18c05cc1
+	admin_user=nova
+	auth_protocol=http
+	auth_host=controller
+	signing_dirname=/tmp/keystone-signing-nova
+	admin_tenant_name=service
+	signing_dir=/tmp/keystone-signing-nova
+rm /var/lib/nova/nova.sqlite
+service nova-compute restart
+service nova-network restart
+service nova-api-metadata restart
+
+nova-manage service list
+	Binary           Host                                 Zone             Status     State Updated_At
+	nova-conductor   controller                           internal         enabled    :-)   2014-03-18 05:32:34
+	nova-cert        controller                           internal         enabled    :-)   2014-03-18 05:32:34
+	nova-scheduler   controller                           internal         enabled    :-)   2014-03-18 05:32:34
+	nova-consoleauth controller                           internal         enabled    :-)   2014-03-18 05:32:34
+	nova-compute     compute1                             nova             enabled    :-)   2014-03-18 05:32:30
+	nova-network     compute1                             internal         enabled    :-)   2014-03-18 05:32:31
+	nova-compute     compute2                             nova             enabled    :-)   2014-03-18 05:32:35
+	nova-network     compute2                             internal         enabled    :-)   2014-03-18 05:32:36
+
+3. Intergrating Ceph into Openstack
+ceph osd pool create volumes 128
+ceph osd pool create images 128
+ceph auth get-or-create client.cinder mon 'allow r' osd 'allow class-read object_prefix rbd_children, allow rwx pool=volumes, allow rx pool=images'
+ceph auth get-or-create client.glance mon 'allow r' osd 'allow class-read object_prefix rbd_children, allow rwx pool=images'
+
+ceph auth get-or-create client.glance | ssh controller sudo tee /etc/ceph/ceph.client.glance.keyring
+#ssh controller sudo chown glance:glance /etc/ceph/ceph.client.glance.keyring
+ceph auth get-or-create client.cinder | ssh controller sudo tee /etc/ceph/ceph.client.cinder.keyring
+#ssh controller sudo chown cinder:cinder /etc/ceph/ceph.client.cinder.keyring
+
+ceph auth get-key client.cinder | ssh compute1 tee client.cinder.key
+ceph auth get-key client.cinder | ssh compute2 tee client.cinder.key
+
+Compute1 Node
+su ceph
+cd
+uuidgen
+d914c2c5-e7ce-470a-a4e9-6787fd9e129a
+
+cat > secret.xml <<EOF
+<secret ephemeral='no' private='no'>
+  <uuid>d914c2c5-e7ce-470a-a4e9-6787fd9e129a</uuid>
+  <usage type='ceph'>
+    <name>client.cinder secret</name>
+  </usage>
+</secret>
+EOF
+sudo virsh secret-define --file secret.xml
+	Secret d914c2c5-e7ce-470a-a4e9-6787fd9e129a created
+sudo virsh secret-set-value --secret d914c2c5-e7ce-470a-a4e9-6787fd9e129a --base64 $(cat client.cinder.key) && rm client.cinder.key secret.xml
+	Secret value set
+
+Compute2
+su ceph
+cd
+cat > secret.xml <<EOF
+<secret ephemeral='no' private='no'>
+  <uuid>d914c2c5-e7ce-470a-a4e9-6787fd9e129a</uuid>
+  <usage type='ceph'>
+    <name>client.cinder secret</name>
+  </usage>
+</secret>
+EOF
+sudo virsh secret-define --file secret.xml
+	Secret d914c2c5-e7ce-470a-a4e9-6787fd9e129a created
+sudo virsh secret-set-value --secret d914c2c5-e7ce-470a-a4e9-6787fd9e129a --base64 $(cat client.cinder.key) && rm client.cinder.key secret.xml
+	Secret value set
+
+
+CONFIGURING GLANCE
+Controller Node
+sudo vim /etc/glance/glance-api.conf
+	default_store=rbd
+	rbd_store_user=glance
+	rbd_store_pool=images
+	show_image_direct_url=True
+
+service glance-api restart
+
+CONFIGURING CINDER
+sudo vim /etc/cinder/cinder.conf
+	[DEFAULT]
+	volume_driver=cinder.volume.drivers.rbd.RBDDriver
+	rbd_pool=volumes
+	rbd_ceph_conf=/etc/ceph/ceph.conf
+	rbd_flatten_volume_from_snapshot=false
+	rbd_max_clone_depth=5
+	glance_api_version=2
+	rbd_user=cinder
+	rbd_secret_uuid=d914c2c5-e7ce-470a-a4e9-6787fd9e129a
+sudo service cinder-volume restart
+
+CONFIGURING NOVA
+Compute1 & compute2 Node
+sudo vim /etc/nova/nova.conf
+	libvirt_images_type=rbd
+	libvirt_images_rbd_pool=volumes
+	libvirt_images_rbd_ceph_conf=/etc/ceph/ceph.conf
+	rbd_user=cinder
+	rbd_secret_uuid=d914c2c5-e7ce-470a-a4e9-6787fd9e129a
+	libvirt_inject_password=false
+	libvirt_inject_key=false
+	libvirt_inject_partition=-2
+scp /etc/ceph/ceph.client.admin.keyring root@compute1:/etc/ceph/
+sudo service nova-compute restart
+
+Apply patch for libvir
+
+
+
+--- Testing
+Tạo ip pools
+nova network-create local.net --fixed-range-v4=10.10.10.64/26 --bridge=br100 --multi-host=T
+	Local IP : 10.10.10.65 => 10.10.10.127
+nova-manage floating create --ip_range 192.168.1.192/26
+	External IP : 192.168.1.193 => 192.168.1.254
+Add SSH & ICMP to default secgroup
+
+
