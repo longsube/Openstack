@@ -1,22 +1,23 @@
-controller
-	nic1: 172.16.0.105
-	nic2: 192.168.1.105 (Internet access)
-compute1
-	nic1: 172.16.0.201
-	nic2: 192.168.1.201 (Internet access)
-2 ổng cứng 
-	/dev/sdb : 50GB
-	/dev/sdc : 50GB
+	controller
+		nic1: 172.16.0.105
+		nic2: 192.168.1.105 (Internet access)
+	compute1
+		nic1: 172.16.0.201
+		nic2: 192.168.1.201 (Internet access)
+	2 ổng cứng 
+		/dev/sdb : 50GB
+		/dev/sdc : 50GB
 
-compute2
-	nic1: 172.16.0.202
-	nic2: 192.168.1.202 (Internet access)
-2 ổ cứng 
-	/dev/sdb : 50GB
-	/dev/sdc : 50GB
+	compute2
+		nic1: 172.16.0.202
+		nic2: 192.168.1.202 (Internet access)
+	2 ổ cứng 
+		/dev/sdb : 50GB
+		/dev/sdc : 50GB
 
 1. Installing Ceph
-3 Node
+
+Trên cả 3 Node
 172.16.0.105 controller
 172.16.0.201 compute1
 172.16.0.202 compute2
@@ -27,7 +28,7 @@ echo "ceph ALL = (root) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/ceph
 chmod 0440 /etc/sudoers.d/ceph
 
 
-Controller Node - Ceph Monitor Node
+Trên Controller Node (Ceph Monitor Node)
 su ceph
 cd
 ssh-keygen
