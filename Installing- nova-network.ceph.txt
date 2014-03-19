@@ -8,7 +8,6 @@ compute1
 	/dev/sdb : 50GB
 	/dev/sdc : 50GB
 
-Hoang DInh Quan
 compute2
 	nic1: 172.16.0.202
 	nic2: 192.168.1.202 (Internet access)
