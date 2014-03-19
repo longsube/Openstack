@@ -457,6 +457,8 @@ sudo vim /etc/nova/nova.conf
 Controller Node
 scp /etc/ceph/ceph.client.admin.keyring root@compute1:/etc/ceph/
 scp /etc/ceph/ceph.client.cinder.keyring root@compute1:/etc/ceph/
+scp /etc/ceph/ceph.client.admin.keyring root@compute2:/etc/ceph/
+scp /etc/ceph/ceph.client.cinder.keyring root@compute2:/etc/ceph/
 
 Compute1 Node
 sudo service nova-compute restart
