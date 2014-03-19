@@ -67,13 +67,17 @@ ceph -s
 
 2. Installing Openstack
 	2.1 Installing Controller Node
+su
 apt-get update && apt-get upgrade -y && reboot
 apt-get install vim ntp python-mysqldb python-software-properties -y
 sed -i "/server [0-9].ubuntu.pool.ntp.org/d" /etc/ntp.conf
 sed -i "s/server ntp.ubuntu.com/server controller/" /etc/ntp.conf
 service ntp restart
 add-apt-repository cloud-archive:havana -y && apt-get update
+
 		2.1.1 MySQL Server
+echo "mysql-server-5.5 mysql-server/root_password password 37e84be4d4" | debconf-set-selections
+echo "mysql-server-5.5 mysql-server/root_password_again password 37e84be4d4" | debconf-set-selections
 apt-get install -y mysql-server
 mysql_secure_installation
 sudo sed -i "s/127.0.0.1/0.0.0.0/g" /etc/mysql/my.cnf
