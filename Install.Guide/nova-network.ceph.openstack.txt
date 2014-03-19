@@ -211,6 +211,7 @@ vim /etc/cinder/cinder.conf
 	auth_protocol=http
 	admin_user=cinder
 	signing_dirname=/tmp/keystone-signing-cinder
+cinder-manage db sync
 vim /etc/cinder/api-paste.ini
 	#auth_host = 127.0.0.1
 	#auth_port = 35357
@@ -218,6 +219,7 @@ vim /etc/cinder/api-paste.ini
 	#admin_tenant_name = %SERVICE_TENANT_NAME%
 	#admin_user = %SERVICE_USER%
 	#admin_password = %SERVICE_PASSWORD%
+
 service cinder-scheduler restart
 service cinder-api restart
 service cinder-volume restart
