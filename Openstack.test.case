@@ -1,0 +1,106 @@
+1. Resize Volume (RBD backend)
+	- Windows - passed
+		Sử dụng diskpart
+	- Ubuntu - passed
+		Sử dụng e2fschk và 
+	- Hạn chế : Phải unmount volume, thời gian downtime khoảng 1 phút (nếu không có gì phát sinh)
+
+2. Resize VM (Tăng/giảm CPU/RAM/HDD)
+	- Ubuntu - passed
+
+	- Hạn chế : Sau khi resize phải reboot
+		Enable Resize : /etc/nova/nova.conf
+		resize_confirm_window=1
+		allow_resize_to_same_host=True
+	- Log file : nova-conductor.log
+
+3. Boot from Volume
+	- Ubuntu - Passed (Dữ liệu không bị mất)
+
+4. (Live) Migration
+	4.1 Live migration
+		- UID & GID của nova như nhau giữa các Compute Node
+		- /var/lib/nova/intances : Shared Storage 
+
+5. Cấu hình nova sử dụng Ceph để lưu ổ cứng
+Patching : https://review.openstack.org/#/c/48952/
+	How to patch : http://docs.mirantis.com/fuel/fuel-4.0/openstack-patch-quick-ref.html
+
+
+6. Chỉ định Compute Node khi tạo máy ảo
+nova image-list
+	+--------------------------------------+--------+--------+--------+
+	| ID                                   | Name   | Status | Server |
+	+--------------------------------------+--------+--------+--------+
+	| 11c2b4b6-2657-405c-9da3-279811651afe | Cirros | ACTIVE |        |
+	+--------------------------------------+--------+--------+--------+
+nova hypervisor-list
+	+----+---------------------+
+	| ID | Hypervisor hostname |
+	+----+---------------------+
+	| 1  | compute2            |
+	| 2  | compute1            |
+	+----+---------------------+
+nova keypair-list
+	+-----------+-------------------------------------------------+
+	| Name      | Fingerprint                                     |
+	+-----------+-------------------------------------------------+
+	| bananakey | 84:c6:76:0c:db:c2:bd:de:0e:6f:0b:5f:4a:a9:f2:a6 |
+	+-----------+-------------------------------------------------+
+nova boot --image 11c2b4b6-2657-405c-9da3-279811651afe --flavor m1.tiny --key-name bananakey --availability-zone nova:compute1 newInstance
+
+
+7. Live migrate (Ceph-Backend)
+
+Enable
+nova-api server
+vim /etc/nova/nova.conf
+	live_migration_flag=VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE,VIR_MIGRATE_PERSIST_DEST
+
+
+nova list
++--------------------------------------+-------------+--------+------------+-------------+-----------------------+
+| ID                                   | Name        | Status | Task State | Power State | Networks              |
++--------------------------------------+-------------+--------+------------+-------------+-----------------------+
+| 5913905a-ee20-42d4-8199-051c9bfe185e | newInstance | ACTIVE | None       | Running     | local.net=10.10.10.66 |
++--------------------------------------+-------------+--------+------------+-------------+-----------------------+
+
+nova hypervisor-list
++----+---------------------+
+| ID | Hypervisor hostname |
++----+---------------------+
+| 1  | compute2            |
+| 2  | compute1            |
++----+---------------------+
+
+
+	
+	
+2. Create Glance Windows image
+	sudo kvm-img create -f qcow2 windows7.qcow2 20G
+	qemu-system-x86_64 -m 2048 -cdrom WIN7.SP1.22in1.CucXaBong.iso -drive file=windows7.qcow2,if=virtio -drive file=virtio-win-0.1-74.iso,index=3,media=cdrom -net nic,model=virtio -net user -nographic -vnc :9
+vncviewer	=> 127.0.0.1:9
+
+Basic post-setup tweaking
+Installing the para-virtualized network driver
+Start => Device Manager => Ethernet Controller
+
+Enabling Remote Desktop connections
+Start => Allow remote access to your computer
+	=> Remote => Allow connection from computers running any version....
+nova secgroup-add-rule default tcp 3389 3389 0.0.0.0/0
+
+
+
+Installing Windows XP
+Create a Guest Disk Image
+qemu-img create -f qcow2 Win2k3Entx86.qcow2 4G
+qemu-system-x86_64 -m 2048 -smp 4 -boot dca -cdrom Win2K3_STD_ENT.iso -drive file=Win2k3Entx86.qcow2,cache=none,if=virtio -fda virtio-win-drivers-20120712-1.vfd -net nic,model=virtio -net user
+
+kvm-img create -f qcow2 fake.qcow2 1G
+qemu-system-x86_64 -m 2048 -smp 4 -cdrom virtio-win-0.1-74.iso -drive file=Win2k3Entx86.qcow2,cache=none,if=virtio -net nic,model=virtio -drive file=fake.qcow2,if=virtio
+
+Manually create your “Custom” windows 2003 cdrom
+
+	
+
