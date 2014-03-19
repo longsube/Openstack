@@ -324,9 +324,6 @@ vim /etc/nova/nova.conf
 	compute_driver=libvirt.LibvirtDriver
 	compute_scheduler_driver=nova.scheduler.filter_scheduler.FilterScheduler
 
-	#Enable live migration
-	live_migration_flag=VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE,VIR_MIGRATE_PERSIST_DEST
-
 	vnc_enabled=true
 	novncproxy_base_url=http://controller:6080/vnc_auto.html
 	vncserver_proxyclient_address=172.16.0.201
@@ -379,9 +376,9 @@ ceph auth get-or-create client.cinder mon 'allow r' osd 'allow class-read object
 ceph auth get-or-create client.glance mon 'allow r' osd 'allow class-read object_prefix rbd_children, allow rwx pool=images'
 
 ceph auth get-or-create client.glance | ssh controller sudo tee /etc/ceph/ceph.client.glance.keyring
-#ssh controller sudo chown glance:glance /etc/ceph/ceph.client.glance.keyring
+sudo chown glance:glance /etc/ceph/ceph.client.glance.keyring
 ceph auth get-or-create client.cinder | ssh controller sudo tee /etc/ceph/ceph.client.cinder.keyring
-#ssh controller sudo chown cinder:cinder /etc/ceph/ceph.client.cinder.keyring
+sudo chown cinder:cinder /etc/ceph/ceph.client.cinder.keyring
 
 ceph auth get-key client.cinder | ssh compute1 tee client.cinder.key
 ceph auth get-key client.cinder | ssh compute2 tee client.cinder.key
@@ -456,10 +453,15 @@ sudo vim /etc/nova/nova.conf
 	libvirt_inject_password=false
 	libvirt_inject_key=false
 	libvirt_inject_partition=-2
+
+Controller Node
 scp /etc/ceph/ceph.client.admin.keyring root@compute1:/etc/ceph/
+
+Compute1 Node
 sudo service nova-compute restart
 
 Apply patch for libvir
+
 
 
 
