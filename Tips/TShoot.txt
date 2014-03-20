@@ -1,0 +1,21 @@
+Một số lỗi gặp phải khi cài đặt, sử dụng Openstack
+
+1. ERROR: missing keyring, cannot use cephx for authentication\n2014-01-21 11:05:53.645065 7fdc0f6f6780  0 librados: client.admin initialization error (2) No such file or directory\nrbd: couldn't connect to the cluster!\n"
+	- Mô tả
+	  * Khi tạo máy ảo (sửu dụng ceph để lưu trữ đĩa cứng) bị lỗi. Kiểm tra nova-compute log thì phát hiện thông báo
+	- Nguyên nhân
+	  * Do nova-compute mặc định sử dụng client.admin user để chứng thực với ceph, nhưng file ceph.client.admin.keyring không tồn lại ở /etc/ceph.
+	- Fix
+	  * Cách 1: Copy file ceph.client.admin.keyring từ máy ceph-deploy (master) qua
+	  * Cách 2: Chứng thực với ceph bằng 1 user khác
+	vim /etc/init/nova-compute.conf
+		env CEPH_ARGS="--id cinder" <= Chứng thực bằng user client.cinder
+	restart nova-compute
+
+2. Stderr: "rbd: pool volumes doesn't contain rbd images\n"
+	- Mô tả
+	  * Khi tạo máy ảo (sử dụng ceph để lưu trữ đĩa cứng) bị lỗi. Kiểm tra nova-compute log thì phát hiện thông báo
+	- Nguyên nhân : 
+	  * Do lệnh "rbd -p volumes ls" trả về exit code là 2 nên nova-compute return với 1 thông báo lỗi (mặc dù 2 cái này đếch liên quan gì).
+	- Fix:
+	  * Vào horizon tạo 1 volume bất kỳ và tiến hành tạo lại máy ảo.
