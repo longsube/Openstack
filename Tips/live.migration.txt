@@ -1,0 +1,49 @@
+1. Mô tả
+	* Cấu hình live-migration sử dụng Ceph làm nơi lưu trữ đĩa cứng của VM
+	* Yêu cầu là VM phải được boot từ Volume (Nếu không sẽ báo lỗi do không cấu hình Shared Filesystem)
+
+2. Cấu hình
+	2.1 Compute1 & Compute2 Node
+
+wget https://raw.githubusercontent.com/d0m0reg00dthing/Openstack/master/Patches/Fixes%20error%20on%20live-migration%20of%20volume-backed%20vm.patch
+cd /usr/share/pyshared/nova
+patch -b < ~/Fixes\ error\ on\ live-migration\ of\ volume-backed\ vm.patch
+	File to patch : /usr/share/pyshared/nova/tests/virt/libvirt/test_libvirt.py
+	File to patch : /usr/share/pyshared/nova/virt/libvirt/driver.py
+service nova-compute restart
+
+vim /etc/libvirt/libvirtd.conf
+	listen_tls = 0
+	listen_tcp = 1
+	auth_tcp = "none"
+vim /etc/libvirt/qemu.conf
+	dynamic_ownership = 1
+vim /etc/init/libvirt-bin.conf
+	env libvirtd_opts="-d -l"
+vim /etc/default/libvirt-bin
+	libvirtd_opts="-d -l"
+stop libvirt-bin && start libvirt-bin
+	Test : 
+	ps aux | grep libvirt
+		root      4076  1.2  0.6 680652 12296 ?        Sl   23:25   0:00 /usr/sbin/libvirtd -d -l
+
+vim /etc/nova/nova.conf
+	[DEFAULT]
+	live_migration_flag=VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE
+service nova-compute restart
+
+	2.2 Controller Node
+vim /etc/nova/nova.conf
+	[DEFAULT]
+	live_migration_flag=VIR_MIGRATE_UNDEFINE_SOURCE,VIR_MIGRATE_PEER2PEER,VIR_MIGRATE_LIVE
+
+wget https://raw.githubusercontent.com/d0m0reg00dthing/Openstack/master/Patches/Fixes%20error%20on%20live-migration%20of%20volume-backed%20vm.patch
+cd /usr/share/pyshared/nova
+patch -b < ~/Fixes\ error\ on\ live-migration\ of\ volume-backed\ vm.patch
+	File to patch : /usr/share/pyshared/nova/tests/virt/libvirt/test_libvirt.py
+	File to patch : /usr/share/pyshared/nova/virt/libvirt/driver.py
+service nova-conductor restart
+service nova-api restart
+
+
+
