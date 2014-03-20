@@ -1,0 +1,79 @@
+From 0cbb231cd14c8cb767b67d89b14d0ef46b3e8018 Mon Sep 17 00:00:00 2001
+From: Edward Hope-Morley <edward.hope-morley@canonical.com>
+Date: Fri, 4 Oct 2013 20:13:44 +0100
+Subject: [PATCH] Fixes error on live-migration of volume-backed vm
+
+Live-migrating a volume-backed vm (i.e. booted from volume)
+is currently broken.
+
+This patch fixes the case where a volume-backed vm is to be
+live-migrated without shared storage on compute nodes or
+ephemeral volumes attached to the instance. Specifically, it
+stops create_images_and_backing() from blowing up when no disk
+info is supplied.
+
+Change-Id: Icec7a6e7225ebe029e24d3be303c9ab01818f30e
+Fixes: bug 1235182
+---
+ nova/tests/virt/libvirt/test_libvirt.py |   28 ++++++++++++++++++++++++++++
+ nova/virt/libvirt/driver.py             |    5 ++++-
+ 2 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/nova/tests/virt/libvirt/test_libvirt.py b/nova/tests/virt/libvirt/test_libvirt.py
+index 8895584..59b1604 100644
+--- a/nova/tests/virt/libvirt/test_libvirt.py
++++ b/nova/tests/virt/libvirt/test_libvirt.py
+@@ -2997,6 +2997,34 @@ class LibvirtConnTestCase(test.TestCase):
+ 
+         db.instance_destroy(self.context, instance_ref['uuid'])
+ 
++    def test_create_images_and_backing(self):
++        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        self.mox.StubOutWithMock(conn, '_fetch_instance_kernel_ramdisk')
++        self.mox.StubOutWithMock(libvirt_driver.libvirt_utils, 'create_image')
++
++        libvirt_driver.libvirt_utils.create_image(mox.IgnoreArg(),
++                                                  mox.IgnoreArg(),
++                                                  mox.IgnoreArg())
++        conn._fetch_instance_kernel_ramdisk(self.context, self.test_instance)
++        self.mox.ReplayAll()
++
++        self.stubs.Set(os.path, 'exists', lambda *args: False)
++        disk_info_json = jsonutils.dumps([{'path': 'foo', 'type': None,
++                                           'disk_size': 0,
++                                           'backing_file': None}])
++        conn._create_images_and_backing(self.context, self.test_instance,
++                                        "/fake/instance/dir", disk_info_json)
++
++    def test_create_images_and_backing_disk_info_none(self):
++        conn = libvirt_driver.LibvirtDriver(fake.FakeVirtAPI(), False)
++        self.mox.StubOutWithMock(conn, '_fetch_instance_kernel_ramdisk')
++
++        conn._fetch_instance_kernel_ramdisk(self.context, self.test_instance)
++        self.mox.ReplayAll()
++
++        conn._create_images_and_backing(self.context, self.test_instance,
++                                        "/fake/instance/dir", None)
++
+     def test_pre_live_migration_works_correctly_mocked(self):
+         # Creating testdata
+         vol = {'block_device_mapping': [
+diff --git a/nova/virt/libvirt/driver.py b/nova/virt/libvirt/driver.py
+index 7ad3bf6..ac7aa67 100644
+--- a/nova/virt/libvirt/driver.py
++++ b/nova/virt/libvirt/driver.py
+@@ -4169,7 +4169,10 @@ class LibvirtDriver(driver.ComputeDriver):
+             json strings specified in get_instance_disk_info
+ 
+         """
+-        disk_info = jsonutils.loads(disk_info_json)
++        if not disk_info_json:
++            disk_info = []
++        else:
++            disk_info = jsonutils.loads(disk_info_json)
+ 
+         for info in disk_info:
+             base = os.path.basename(info['path'])
+-- 
+1.7.9.5
+
