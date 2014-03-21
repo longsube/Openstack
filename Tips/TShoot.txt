@@ -19,3 +19,19 @@ Một số lỗi gặp phải khi cài đặt, sử dụng Openstack
 	  * Do lệnh "rbd -p volumes ls" trả về exit code là 2 nên nova-compute return với 1 thông báo lỗi (mặc dù 2 cái này đếch liên quan gì).
 	- Fix:
 	  * Vào horizon tạo 1 volume bất kỳ và tiến hành tạo lại máy ảo.
+
+3. ERROR nova.compute [-] No db access allowed in nova-compute:
+	- Mô tả
+	 * Xem log nova-compute sau khi resize VM, xuất hiện
+		ERROR nova.compute [-] No db access allowed in nova-compute:
+			.....  Error auto-confirming resize: nova-compute. Will retry later.
+
+	=> Link Tham khảo : https://review.openstack.org/#/c/63305/
+	- Nguyên nhân : ko rõ ;))	
+	- Fix: (nova-compute Nodes)
+
+		wget https://raw.githubusercontent.com/d0m0reg00dthing/Openstack/master/Patches/Fix%20auto%20confirmation%20failed%20because%20of%20db%20access.patch
+		patch -b < Fix\ auto\ confirmation\ failed\ because\ of\ db\ access.patch
+			File to patch: /usr/share/pyshared/nova/compute/api.py
+			File to patch: /usr/share/pyshared/nova/tests/compute/test_compute_api.py
+		service nova-compute restart
