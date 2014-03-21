@@ -1,0 +1,69 @@
+Cấu hình resize VM (Single Node & Multi-Node)
+
+1. Cấu hình cho phép resize VM khi chỉ có 1 compute node
+	1.1 nova-api & nova-scheduler Node
+vim /etc/nova/nova.conf
+	allow_resize_to_same_host=true
+	scheduler_default_filters=AllHostsFilter
+	resize_confirm_window=1
+service nova-api restart
+service nova-scheduler restart
+
+	1.2 nova-compute Node
+vim /etc/nova/nova.conf
+	allow_resize_to_same_host=true
+	scheduler_default_filters=AllHostsFilter
+	resize_confirm_window=1
+service nova-compute restart
+
+2. Cấu hình SSH key
+	Mục tiêu: Mỗi compute node sẽ có SSH Public Key của tất cả các compute node khác.
+
+	2.1 compute1 node
+usermod -s /bin/bash nova
+su - nova
+mkdir -p -m 700 .ssh && cd .ssh
+cat > config <<EOF
+Host * 
+   StrictHostKeyChecking no 
+   UserKnownHostsFile=/dev/null 
+EOF
+
+ssh-keygen -f id_rsa -b 1024 -P ""
+scp ~/.ssh/id_rsa.pub root@compute2:/var/lib/nova/.ssh/authorized_keys
+exit
+
+	2.2 compute2 node
+usermod -s /bin/bash nova
+su - nova
+mkdir -p -m 700 .ssh && cd .ssh
+cat > config <<EOF
+Host * 
+   StrictHostKeyChecking no 
+   UserKnownHostsFile=/dev/null 
+EOF
+
+ssh-keygen -f id_rsa -b 1024 -P ""
+scp ~/.ssh/id_rsa.pub root@compute1:/var/lib/nova/.ssh/authorized_keys
+exit
+
+	2.3 compute1 node
+chown nova:nova /var/lib/nova/.ssh/authorized_keys
+
+	2.4 compute2 node
+chown nova:nova /var/lib/nova/.ssh/authorized_keys
+
+
+3. Kiểm tra
+nova list 
+	+--------------------------------------+--------+--------+------------+-------------+----------+
+	| ID                                   | Name   | Status | Task State | Power State | Networks |
+	+--------------------------------------+--------+--------+------------+-------------+----------+
+	| 2278b3e9-1b96-45f1-b314-09b32d555fe1 | asdasd | ACTIVE | None       | Running     |          |
+	+--------------------------------------+--------+--------+------------+-------------+----------+
+nova resize 2278b3e9-1b96-45f1-b314-09b32d555fe1 m1.small --poll
+	Instance resizing... 100% complete
+	Finished
+
+
+
