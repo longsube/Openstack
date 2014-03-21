@@ -17,7 +17,7 @@ vim /etc/nova/nova.conf
 service nova-compute restart
 
 2. Cấu hình SSH key
-	Mục tiêu: Mỗi compute node sẽ có SSH Public Key của tất cả các compute node khác.
+	Mục tiêu: Mỗi compute node sẽ có SSH Public Key (cụ thể là key của user 'nova') của tất cả các compute node khác.
 
 	2.1 compute1 node
 usermod -s /bin/bash nova
