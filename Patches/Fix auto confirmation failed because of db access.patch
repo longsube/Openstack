@@ -1,0 +1,101 @@
+From 62d09b62b88cee958c7f67276dc667cee9491ec1 Mon Sep 17 00:00:00 2001
+From: Wangpan <hzwangpan@corp.netease.com>
+Date: Mon, 30 Dec 2013 14:11:01 +0800
+Subject: [PATCH] Fix auto confirmation failed because of db access
+
+The _reserve_quota_delta() method in compute/api.py reserves
+quotas in DB if deltas is not empty, and it will be called by
+confirm_resize method.
+If the confirm resize operation is launched from users through
+RESTful API, this direct DB access is allowed, and the confirm
+operation will succeed.
+But if the confirm operation is launched from nova-compute
+through periodic task '_poll_unconfirmed_resizes', this direct
+DB access is forbidden and the auto confirmation is failed.
+
+This change fixes the above bug by using quota object while
+reserving quota deltas.
+
+Closes-bug: #1262461
+
+Change-Id: I852452e9a62b167e6e620e85f12ab5f19974e2d8
+---
+ nova/compute/api.py                    |    6 +++++-
+ nova/tests/compute/test_compute_api.py |   19 +++++++++++++++----
+ 2 files changed, 20 insertions(+), 5 deletions(-)
+
+diff --git a/nova/compute/api.py b/nova/compute/api.py
+index 76c9910..58a77dd 100644
+--- a/nova/compute/api.py
++++ b/nova/compute/api.py
+@@ -59,6 +59,7 @@ from nova.objects import instance_group as instance_group_obj
+ from nova.objects import instance_info_cache
+ from nova.objects import keypair as keypair_obj
+ from nova.objects import migration as migration_obj
++from nova.objects import quotas as quotas_obj
+ from nova.objects import security_group as security_group_obj
+ from nova.objects import service as service_obj
+ from nova.openstack.common import excutils
+@@ -2287,7 +2288,10 @@ class API(base.Base):
+     def _reserve_quota_delta(context, deltas, project_id=None):
+         if not deltas:
+             return
+-        return QUOTAS.reserve(context, project_id=project_id, **deltas)
++
++        quotas = quotas_obj.Quotas()
++        quotas.reserve(context, project_id=project_id, **deltas)
++        return quotas.reservations
+ 
+     @staticmethod
+     def _resize_cells_support(context, reservations, instance,
+diff --git a/nova/tests/compute/test_compute_api.py b/nova/tests/compute/test_compute_api.py
+index cb42cbf..8e0d5f2 100644
+--- a/nova/tests/compute/test_compute_api.py
++++ b/nova/tests/compute/test_compute_api.py
+@@ -35,6 +35,7 @@ from nova.objects import external_event as external_event_obj
+ from nova.objects import instance as instance_obj
+ from nova.objects import instance_info_cache
+ from nova.objects import migration as migration_obj
++from nova.objects import quotas as quotas_obj
+ from nova.objects import service as service_obj
+ from nova.openstack.common import timeutils
+ from nova.openstack.common import uuidutils
+@@ -784,7 +785,7 @@ class _ComputeAPIUnitTestMixIn(object):
+         self.mox.StubOutWithMock(migration_obj.Migration,
+                                  'get_by_instance_and_status')
+         self.mox.StubOutWithMock(self.compute_api, '_downsize_quota_delta')
+-        self.mox.StubOutWithMock(self.compute_api, '_reserve_quota_delta')
++        self.mox.StubOutWithMock(quotas_obj, 'Quotas')
+         self.mox.StubOutWithMock(fake_mig, 'save')
+         self.mox.StubOutWithMock(quota.QUOTAS, 'commit')
+         self.mox.StubOutWithMock(self.compute_api, '_record_action_start')
+@@ -796,13 +797,23 @@ class _ComputeAPIUnitTestMixIn(object):
+             migration_obj.Migration.get_by_instance_and_status(
+                     self.context, fake_inst['uuid'], 'finished').AndReturn(
+                             fake_mig)
++
++        fake_deltas = {'ram': -128}
+         self.compute_api._downsize_quota_delta(self.context,
+-                                               fake_inst).AndReturn('deltas')
++                                           fake_inst).AndReturn(fake_deltas)
+ 
+         resvs = ['resvs']
+ 
+-        self.compute_api._reserve_quota_delta(self.context,
+-                                              'deltas').AndReturn(resvs)
++        class FakeQuotaObj():
++            def __init__(self):
++                self.reservations = resvs
++
++            def reserve(cls, context, expire=None, project_id=None,
++                        user_id=None, **deltas):
++                self.assertIsNone(project_id)
++                self.assertEqual(fake_deltas, deltas)
++
++        quotas_obj.Quotas().AndReturn(FakeQuotaObj())
+ 
+         def _check_mig(expected_task_state=None):
+             self.assertEqual('confirming', fake_mig.status)
+-- 
+1.7.9.5
+
