@@ -29,9 +29,11 @@ Một số lỗi gặp phải khi cài đặt, sử dụng Openstack
 	=> Link Tham khảo : https://review.openstack.org/#/c/63305/
 	- Nguyên nhân : ko rõ ;))	
 	- Fix: (nova-compute Nodes)
-
+	 * Cách 1:
 		wget https://raw.githubusercontent.com/d0m0reg00dthing/Openstack/master/Patches/Fix%20auto%20confirmation%20failed%20because%20of%20db%20access.patch
 		patch -b < Fix\ auto\ confirmation\ failed\ because\ of\ db\ access.patch
 			File to patch: /usr/share/pyshared/nova/compute/api.py
 			File to patch: /usr/share/pyshared/nova/tests/compute/test_compute_api.py
 		service nova-compute restart
+	 * Cách 2: sử dụng bản patch tại https://raw.githubusercontent.com/d0m0reg00dthing/Openstack/master/Patches/Make%20compute%20API%20resize%20methods%20use%20Quotas%20objects.patch
+		=> Tham khảo thêm : https://review.openstack.org/#/c/81099/
